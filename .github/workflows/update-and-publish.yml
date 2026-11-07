@@ -1,0 +1,60 @@
+# Keeps the public site current: twice an hour GitHub downloads the newest votes and bills, rebuilds
+# the site's data and republishes it to GitHub Pages. Nothing runs on your own computer.
+# One-time setup: Settings > Pages > Build and deployment > Source: "GitHub Actions".
+name: Update data and publish site
+
+on:
+  schedule:
+    - cron: "17,47 * * * *"   # twice an hour; GitHub sometimes starts scheduled runs a few minutes late
+  workflow_dispatch:           # adds a "Run workflow" button on the Actions tab
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Today's date (names the download cache)
+        id: day
+        run: echo "day=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Reuse earlier downloads so only new data is fetched
+        uses: actions/cache@v4
+        with:
+          path: data
+          key: tracker-data-${{ steps.day.outputs.day }}
+          restore-keys: tracker-data-
+
+      - name: Download new votes and bills, rebuild the site data
+        run: python -m pipeline update
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
